@@ -7,7 +7,7 @@
 |Sean Arthur Tamajaya|5027251050|
 |Dewa Ngakan Gede Wira Adhimukti|5027251063|
 
-### Study Case
+## Study Case
 
 ### Kasus BIND DNS Resolver (CVE-2000-0333 / BIND 8)
 Pada era tahun 2000 an, software BIND 8 (resolver DNS paling banyak digunakan di dunia pada saat itu) memiliki bug serupa pada mekanisme handling kompresi DNS.
@@ -23,7 +23,7 @@ Kerentanan CVE-2000-0333 secara spesifik berdampak langsung pada **Ethereal / Wi
 
 - **Dampak Dunia Nyata:** Alat pemantau jaringan (IDS/Sniffer) milik tim SOC langsung mengalami freeze atau crash saat mencoba membedah paket DNS tersebut. Akibatnya tim security menjadi "buta" (network blindness) dan penyerang bisa memasukkan payload serangan lain tanpa terdeteksi di log pemantauan.
 
-### Analisis Traffic PCAP 1 - DNS Resource Utilization Attacks
+## Analisis Traffic PCAP 1 - DNS Resource Utilization Attacks
 Sumber file: https://wiki.wireshark.org/uploads/__moin_import__/attachments/SampleCaptures/zlip-3.pcap
 
 Screenshot isi file di dalam Wireshark:
@@ -159,4 +159,16 @@ Beberapa indikator yang ditemukan mendukung kesimpulan tersebut. Pertama, Wiresh
 Serangan tersebut dapat dikategorikan sebagai **DNS Resource Utilization Attack**. Dampak yang mungkin terjadi pada implementasi DNS yang rentan adalah penggunaan sumber daya secara berlebihan hingga menyebabkan nameserver mengalami hang atau crash, terutama jika tidak memiliki mekanisme untuk membatasi circular pointer reference.
 
 
-### Analisis Traffic PCAP 2 - nama_serangan
+## Analisis Traffic PCAP 2 - nama_serangan
+
+## Rekomendasi Solusi dan Mitigasi 
+Untuk memitigasi dan mencegah tipe serangan DNS berbaris decompression loop / malformed packet, harus dilakukan di beberapa lapisan: **Aplikasi (DNS Server/Parser), Insfratruktur Jaringan (Firewall/IPS)**, dan **Monitoring**.
+
+1. Patch dan Update DNS Server / Resolver
+   Dengan menggunakan software DNS server versi terbaru, kita bisa mendapatkan update yang sudah memiliki proteksi loop         detection. Selain itu parser modern juga secara default membatasi jumlah lompatan pointer (misalnya maks 5-10 kali) dan      menolak pointer yang menunjuk ke offset di depannya atau di dirinya sendiri.
+
+2. Implementasi Instrusion Prevention System (IPS / NGFW)
+   Aktifkan fitur DNS Inspection pada Firewall untuk mengaktifkan system IPS yang akan membedah header DNS dan mendeteksi       apakah struktur compression pointer valid atau memiliki indikasi infinite loop.
+
+3. Batasi Akses Resolver (Hardening DNS Infrastructure)
+   Jangan biarkan DNS internal bisa diakses secara publik oleh sembarang IP di internet. Server DNS rekursif hanya boleh        melayani query dari IP subnet internal/trusted. Ini mencegah attacker menjadikan servermu sebagai target atau perantara      eksploitasi. 
