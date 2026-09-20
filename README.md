@@ -10,7 +10,7 @@
 ### Study Case
 
 ### Analisis Traffic PCAP 1 - DNS Resource Utilization Attacks
-Sumber file: https://gitlab.com/wireshark/editor-wiki/-/wikis/uploads/__moin_import__/attachments/SampleCaptures/zlip-3.pcap
+Sumber file: https://wiki.wireshark.org/uploads/__moin_import__/attachments/SampleCaptures/zlip-3.pcap
 
 Screenshot isi file di dalam Wireshark:
 ![alt text](image.png)
