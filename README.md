@@ -159,7 +159,308 @@ Beberapa indikator yang ditemukan mendukung kesimpulan tersebut. Pertama, Wiresh
 Serangan tersebut dapat dikategorikan sebagai **DNS Resource Utilization Attack**. Dampak yang mungkin terjadi pada implementasi DNS yang rentan adalah penggunaan sumber daya secara berlebihan hingga menyebabkan nameserver mengalami hang atau crash, terutama jika tidak memiliki mekanisme untuk membatasi circular pointer reference.
 
 
-## Analisis Traffic PCAP 2 - nama_serangan
+## Analisis Traffic PCAP 2 - DNS Denial-of-Service via Malformed DNS Compression Pointer
+
+### 1. Identifikasi Paket
+
+File `pcap2.pcap` hanya berisi **1 paket** dengan ukuran **77 bytes**.
+
+Paket dikirim dari:
+
+- **Source:** `10.0.0.1`
+- **Destination:** `146.84.28.88`
+- **Protocol:** UDP
+- **Source Port:** `1024`
+- **Destination Port:** `53`
+
+Port tujuan `53` menunjukkan bahwa paket diarahkan ke layanan **DNS**.
+
+![Packet PCAP 2](image-6.png)
+
+### 2. Analisis IPv4
+
+Pada bagian **Internet Protocol Version 4**, diperoleh informasi:
+
+| Field | Nilai |
+|---|---|
+| Version | `4` |
+| Header Length | `20 bytes` |
+| Total Length | `63 bytes` |
+| Identification | `0x3b89` |
+| TTL | `64` |
+| Protocol | `UDP (17)` |
+| Source Address | `10.0.0.1` |
+| Destination Address | `146.84.28.88` |
+
+Nilai **Total Length = 63 bytes** menunjukkan bahwa setelah IPv4 header masih terdapat data sebesar:
+
+```text
+63 - 20 = 43 bytes
+```
+
+43 bytes tersebut terdiri dari:
+
+```text
+20 bytes  → IPv4 Header
+ 8 bytes  → UDP Header
+35 bytes  → Payload
+```
+
+![Analisis IPv4](image-7.png)
+
+### 3. Analisis UDP
+
+Pada bagian **User Datagram Protocol**, diperoleh:
+
+| Field | Nilai |
+|---|---|
+| Source Port | `1024` |
+| Destination Port | `53` |
+| Length | `8 bytes` |
+| Checksum | `0x82b7` |
+
+Hal yang menjadi perhatian adalah nilai:
+
+```text
+UDP Length = 8 bytes
+```
+
+Header UDP sendiri berukuran **8 bytes**. Dengan demikian, nilai tersebut menunjukkan bahwa menurut field UDP Length, paket tidak memiliki payload.
+
+Namun, IPv4 sebelumnya menunjukkan bahwa masih terdapat:
+
+```text
+63 - 20 - 8 = 35 bytes
+```
+
+data setelah UDP header.
+
+Dengan demikian terdapat ketidaksesuaian:
+
+```text
+IPv4 menunjukkan:
+    masih terdapat 35 bytes data
+
+UDP menunjukkan:
+    panjang UDP hanya 8 bytes
+```
+
+Hal tersebut menunjukkan bahwa paket memiliki struktur UDP yang **malformed/tidak konsisten**.
+
+![Analisis UDP](image-8.png)
+
+### 4. Analisis Payload
+
+Payload tidak didekodekan Wireshark sebagai DNS secara otomatis, sehingga analisis dilakukan melalui **Packet Bytes**.
+
+Bagian payload dimulai setelah UDP header:
+
+```text
+ed 69 00 00 00 01 00 00 00 00 00 00
+c0 0c c0 07 c0 10 c0 17 c0 20 c0 27 c0 30 c0
+ff cf 00 00 00 01 00 01
+```
+
+Payload tersebut memiliki pola yang menyerupai struktur DNS.
+
+12 bytes pertama dapat dipisahkan sebagai DNS Header:
+
+```text
+ed 69
+00 00
+00 01
+00 00
+00 00
+00 00
+```
+
+Interpretasinya:
+
+| Field | Nilai |
+|---|---|
+| Transaction ID | `0xed69` |
+| Flags | `0x0000` |
+| Questions | `1` |
+| Answers | `0` |
+| Authority | `0` |
+| Additional | `0` |
+
+Struktur tersebut menunjukkan bahwa payload dibuat menyerupai sebuah **DNS Query** dengan satu pertanyaan.
+
+![Raw Packet Bytes](image-9.png)
+
+---
+
+### 5. Analisis DNS Compression Pointer
+
+Setelah 12 bytes DNS Header, byte berikutnya adalah:
+
+```text
+c0 0c
+```
+
+Dalam format DNS, `C0 0C` merupakan **compression pointer**.
+
+Pointer tersebut menunjuk ke offset:
+
+```text
+C0 0C
+    ↓
+offset 12
+```
+
+Offset `12` merupakan posisi awal bagian setelah DNS Header.
+
+Dengan demikian, pointer tersebut menunjuk kembali ke posisi awal QNAME.
+
+Strukturnya menjadi:
+
+```text
+DNS Header
+    ↓
+Offset 12
+    ↓
+C0 0C
+    ↓
+Offset 12
+```
+
+---
+
+### 6. Circular Reference
+
+Masalah utama pada paket ini terdapat pada hubungan tersebut.
+
+Pada offset `12` terdapat:
+
+```text
+C0 0C
+```
+
+Sedangkan `C0 0C` berarti:
+
+```text
+"ikuti data pada offset 12"
+```
+
+Sehingga parser akan mendapatkan:
+
+```text
+Offset 12
+    ↓
+C0 0C
+    ↓
+Offset 12
+    ↓
+C0 0C
+    ↓
+Offset 12
+    ↓
+...
+```
+
+Terjadi **self-referencing compression pointer** atau **circular reference**.
+
+![Circular Pointer pada Packet Bytes](image-9.png)
+
+---
+
+### 7. Permasalahan yang Ditemukan
+
+Terdapat dua anomali utama pada paket:
+
+#### 7.1 UDP Length Tidak Konsisten
+
+UDP menyatakan:
+
+```text
+Length = 8 bytes
+```
+
+sedangkan IPv4 menunjukkan masih terdapat **35 bytes data setelah UDP header**.
+
+#### 7.2 DNS Compression Pointer Membentuk Loop
+
+Payload memiliki:
+
+```text
+C0 0C
+```
+
+yang menunjuk kembali ke offset tempat pointer tersebut berada.
+
+Akibatnya terbentuk:
+
+```text
+C0 0C
+  ↓
+Offset 12
+  ↓
+C0 0C
+  ↓
+Offset 12
+  ↓
+...
+```
+
+Kondisi ini dapat menjadi masalah bagi DNS parser yang tidak memiliki mekanisme untuk mendeteksi circular reference.
+
+---
+
+### 8. Dampak Potensial
+
+Ketika DNS parser melakukan proses **name decompression**, parser perlu mengikuti compression pointer untuk mendapatkan nama domain.
+
+Pada paket normal:
+
+```text
+Pointer
+   ↓
+Data nama domain
+   ↓
+Selesai
+```
+
+Pada paket ini:
+
+```text
+Pointer
+   ↓
+Pointer yang sama
+   ↓
+Pointer yang sama
+   ↓
+...
+```
+
+Jika parser tidak memiliki batasan terhadap pointer traversal atau tidak mendeteksi loop, proses tersebut dapat menyebabkan penggunaan resource secara berlebihan.
+
+Dampak potensialnya dapat berupa:
+
+- excessive CPU processing
+- resource exhaustion
+- service hang
+- crash pada implementasi yang rentan
+
+PCAP ini sendiri **tidak membuktikan bahwa server benar-benar mengalami crash**. Yang dapat dibuktikan dari packet capture adalah adanya paket DNS malformed dengan self-referencing compression pointer.
+
+---
+
+### 9. Kesimpulan
+
+`pcap2.pcap` berisi satu paket UDP berukuran 77 bytes yang dikirim menuju port DNS `53`.
+
+Paket memiliki ketidaksesuaian antara IPv4 Total Length dan UDP Length, di mana UDP menyatakan panjang hanya `8 bytes`, tetapi masih terdapat `35 bytes` data setelah UDP header.
+
+Payload tersebut memiliki struktur yang menyerupai DNS Query dan mengandung compression pointer:
+
+```text
+C0 0C
+```
+
+Pointer tersebut menunjuk kembali ke offset `12`, yaitu posisi pointer itu sendiri, sehingga membentuk **circular/self-reference**.
+
+Kondisi tersebut merupakan karakteristik **malformed DNS packet** yang berpotensi menyebabkan masalah pada DNS parser yang tidak menangani circular compression pointer dengan benar.
 
 ## Rekomendasi Solusi dan Mitigasi 
 Untuk memitigasi dan mencegah tipe serangan DNS berbaris decompression loop / malformed packet, harus dilakukan di beberapa lapisan: **Aplikasi (DNS Server/Parser), Insfratruktur Jaringan (Firewall/IPS)**, dan **Monitoring**.
