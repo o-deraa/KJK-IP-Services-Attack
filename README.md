@@ -9,6 +9,20 @@
 
 ### Study Case
 
+### Kasus BIND DNS Resolver (CVE-2000-0333 / BIND 8)
+Pada era tahun 2000 an, software BIND 8 (resolver DNS paling banyak digunakan di dunia pada saat itu) memiliki bug serupa pada mekanisme handling kompresi DNS.
+
+- **Skenario:** Penyerang mengirimkan paket balasan DNS yang sengaja dimanipulasi (malformed packet) ke server DNS milik perusahaan atau internet service provider (ISP).
+
+- **Dampak Dunia Nyata:** Ketika BIND mencoba memproses paket DNS tersebut, server langsung mengalami infinite loop. Penggunaan CPU server melonjak 100%, membuat layanan DNS perusahaan lumpuh total (Denial of Service) Semua pengguna di jaringan perusahaan/ISP tersebut mendadak tidak bisa mengakses internet karena nama domain (seperti google.com atau youtube.com) gagal diresolusi.
+
+### Kasus Wireshark / Ethereal (CVE-2000-0333 Spesifik)
+Kerentanan CVE-2000-0333 secara spesifik berdampak langsung pada **Ethereal / Wireshark** dan **tcpdump** yang digunakan oleh Tim Network/Security Operations Center (SOC) di berbagai perusahaan. 
+
+- **Skenarion:** Penyerang yang ingin lolos dari pantauan (evasion) sengaja membombardir jaringan dengan paket DNS bergaya zlip (pointer loop).
+
+- **Dampak Dunia Nyata:** Alat pemantau jaringan (IDS/Sniffer) milik tim SOC langsung mengalami freeze atau crash saat mencoba memnbedah paket DNS tersebut. Akibatnya tim security menjadi "buta" (network blindness) dan penyerang bisa memasukkan payload serangan lain tanpa terdeteksi di log pemantauan.
+
 ### Analisis Traffic PCAP 1 - DNS Resource Utilization Attacks
 Sumber file: https://wiki.wireshark.org/uploads/__moin_import__/attachments/SampleCaptures/zlip-3.pcap
 
